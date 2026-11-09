@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # Supabase local development (requires Docker)
+  # Note: For production, use hosted Supabase
+  supabase:
+    image: supabase/supabase:latest
+    container_name: mcp-control-room-supabase
+    environment:
+      POSTGRES_PASSWORD: ${SUPABASE_DB_PASSWORD:-postgres}
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      JWT_SECRET: ${SUPABASE_JWT_SECRET:-your-super-secret-jwt-token-with-at-least-32-characters}
+      ANON_KEY: ${SUPABASE_ANON_KEY}
+      SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+    ports:
+      - "5432:5432"  # PostgreSQL
+      - "54321:54321"  # Supabase Studio
+      - "8000:8000"  # Kong API Gateway
+    volumes:
+      - supabase_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend FastAPI + MCP Server
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mcp-control-room-backend
+    environment:
+      - SUPABASE_URL=http://supabase:8000
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - SUPABASE_DB_URL=postgresql://postgres:${SUPABASE_DB_PASSWORD:-postgres}@supabase:5432/postgres
+      - MCP_SERVER_PORT=8001
+      - MCP_TRANSPORT=stdio
+      - ENVIRONMENT=development
+    ports:
+      - "8001:8000"  # FastAPI REST API
+      - "8002:8001"  # MCP Server HTTP transport
+    depends_on:
+      supabase:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: >
+      sh -c "alembic upgrade head && python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  # Frontend Next.js
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mcp-control-room-frontend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8001
+      - NEXT_PUBLIC_SUPABASE_URL=http://localhost:8000
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    command: npm run dev
+
+volumes:
+  supabase_data:
