@@ -190,10 +190,14 @@ class ApprovalResponse(ApprovalBase):
         from_attributes = True
 
 
+# Tool permission category type
+ToolPermissionCategory = Literal["read", "write", "destructive", "unknown"]
+
+
 # Tool permission models
 class ToolPermissionBase(BaseModel):
     tool_name: str
-    permission_category: Literal["read", "write", "destructive"]
+    permission_category: ToolPermissionCategory
     enabled: bool = True
     requires_approval: bool = False
     allowed_roles: List[Literal["owner", "admin", "member", "viewer"]] = ["owner", "admin", "member"]
@@ -213,6 +217,187 @@ class ToolPermissionResponse(ToolPermissionBase):
 
     class Config:
         from_attributes = True
+
+
+# Tool Category models
+class ToolCategoryBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    display_name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = None
+    default_category: Literal["read", "write", "destructive", "unknown"] = "unknown"
+    default_requires_approval: bool = False
+    default_allowed_roles: List[Literal["owner", "admin", "member", "viewer"]] = ["owner", "admin", "member"]
+
+
+class ToolCategoryCreate(ToolCategoryBase):
+    pass
+
+
+class ToolCategoryUpdate(BaseModel):
+    display_name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = None
+    default_category: Optional[Literal["read", "write", "destructive", "unknown"]] = None
+    default_requires_approval: Optional[bool] = None
+    default_allowed_roles: Optional[List[Literal["owner", "admin", "member", "viewer"]]] = None
+
+
+class ToolCategoryResponse(ToolCategoryBase):
+    id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# Tool Permission Policy models
+class ToolPermissionPolicyBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = None
+    policy_type: Literal["allow", "deny", "require_approval"] = "allow"
+    priority: int = Field(default=100, ge=1)
+    tool_pattern: Optional[str] = None
+    server_id: Optional[UUID] = None
+    category_filter: List[str] = Field(default_factory=list)
+    enabled: bool = True
+
+
+class ToolPermissionPolicyCreate(ToolPermissionPolicyBase):
+    workspace_id: UUID
+
+
+class ToolPermissionPolicyUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = None
+    policy_type: Optional[Literal["allow", "deny", "require_approval"]] = None
+    priority: Optional[int] = Field(None, ge=1)
+    tool_pattern: Optional[str] = None
+    server_id: Optional[UUID] = None
+    category_filter: Optional[List[str]] = None
+    enabled: Optional[bool] = None
+
+
+class ToolPermissionPolicyResponse(ToolPermissionPolicyBase):
+    id: UUID
+    workspace_id: UUID
+    created_by: UUID
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# Tool Role Permission models
+class ToolRolePermissionBase(BaseModel):
+    tool_name: str
+    server_id: Optional[UUID] = None
+    role: Literal["owner", "admin", "member", "viewer"]
+    permission: Literal["allow", "deny", "require_approval"]
+
+
+class ToolRolePermissionCreate(ToolRolePermissionBase):
+    workspace_id: UUID
+
+
+class ToolRolePermissionUpdate(BaseModel):
+    permission: Optional[Literal["allow", "deny", "require_approval"]] = None
+
+
+class ToolRolePermissionResponse(ToolRolePermissionBase):
+    id: UUID
+    workspace_id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# Tool Permission Rule models
+class ToolPermissionRuleBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = None
+    tool_name: str
+    server_id: Optional[UUID] = None
+    condition_type: Literal["always", "time_based", "parameter_based", "user_based", "resource_based"]
+    condition_config: dict = Field(default_factory=dict)
+    action: Literal["allow", "deny", "require_approval"]
+    priority: int = Field(default=100, ge=1)
+    enabled: bool = True
+
+
+class ToolPermissionRuleCreate(ToolPermissionRuleBase):
+    workspace_id: UUID
+
+
+class ToolPermissionRuleUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = None
+    condition_type: Optional[Literal["always", "time_based", "parameter_based", "user_based", "resource_based"]] = None
+    condition_config: Optional[dict] = None
+    action: Optional[Literal["allow", "deny", "require_approval"]] = None
+    priority: Optional[int] = Field(None, ge=1)
+    enabled: Optional[bool] = None
+
+
+class ToolPermissionRuleResponse(ToolPermissionRuleBase):
+    id: UUID
+    workspace_id: UUID
+    created_by: UUID
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# Permission Decision (Audit Log) models
+class PermissionDecisionResponse(BaseModel):
+    id: UUID
+    workspace_id: UUID
+    user_id: UUID
+    tool_name: str
+    server_id: Optional[UUID]
+    decision: Literal["allowed", "denied", "pending_approval", "error"]
+    matched_policy_id: Optional[UUID]
+    matched_rule_id: Optional[UUID]
+    matched_role_permission_id: Optional[UUID]
+    user_role: Literal["owner", "admin", "member", "viewer"]
+    input_parameters: Optional[dict]
+    evaluation_duration_ms: int
+    error_message: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PermissionAuditLogResponse(BaseModel):
+    decisions: List[PermissionDecisionResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+# Permission Evaluation models
+class PermissionEvaluateRequest(BaseModel):
+    tool_name: str
+    server_id: Optional[UUID] = None
+    input_parameters: Optional[dict] = None
+
+
+class PermissionEvaluateResponse(BaseModel):
+    decision: Literal["allowed", "denied", "pending_approval", "error"]
+    user_role: str
+    tool_name: str
+    server_id: Optional[str]
+    input_parameters: Optional[dict]
+    matched_policy_id: Optional[str]
+    matched_rule_id: Optional[str]
+    matched_role_permission_id: Optional[str]
+    error_message: Optional[str]
+    evaluation_duration_ms: int
 
 
 # Analytics models

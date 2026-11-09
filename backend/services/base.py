@@ -1,6 +1,7 @@
 """Base service class with common database operations."""
 from abc import ABC
 from typing import Any
+import asyncpg
 from backend.database.connection import db_pool
 import structlog
 

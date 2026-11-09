@@ -392,6 +392,209 @@ class ApiClient {
     });
     return response.data;
   }
+
+  // Tool Categories
+  async getToolCategories() {
+    const response = await this.client.get("/permissions/categories");
+    return response.data;
+  }
+
+  async getToolCategory(categoryId: string) {
+    const response = await this.client.get(`/permissions/categories/${categoryId}`);
+    return response.data;
+  }
+
+  async createToolCategory(data: {
+    name: string;
+    display_name: string;
+    description?: string;
+    default_category: "read" | "write" | "destructive" | "unknown";
+    default_requires_approval: boolean;
+    default_allowed_roles: ("owner" | "admin" | "member" | "viewer")[];
+  }) {
+    const response = await this.client.post("/permissions/categories", data);
+    return response.data;
+  }
+
+  async updateToolCategory(categoryId: string, data: {
+    display_name?: string;
+    description?: string;
+    default_category?: "read" | "write" | "destructive" | "unknown";
+    default_requires_approval?: boolean;
+    default_allowed_roles?: ("owner" | "admin" | "member" | "viewer")[];
+  }) {
+    const response = await this.client.patch(`/permissions/categories/${categoryId}`, data);
+    return response.data;
+  }
+
+  async deleteToolCategory(categoryId: string) {
+    const response = await this.client.delete(`/permissions/categories/${categoryId}`);
+    return response.data;
+  }
+
+  // Permission Policies
+  async getPermissionPolicies(workspaceId: string, params?: { enabled?: boolean; limit?: number; offset?: number }) {
+    const response = await this.client.get("/permissions/policies", {
+      params: { workspace_id: workspaceId, ...params },
+    });
+    return response.data;
+  }
+
+  async getPermissionPolicy(policyId: string) {
+    const response = await this.client.get(`/permissions/policies/${policyId}`);
+    return response.data;
+  }
+
+  async createPermissionPolicy(data: {
+    workspace_id: string;
+    name: string;
+    description?: string;
+    policy_type: "allow" | "deny" | "require_approval";
+    priority: number;
+    tool_pattern?: string;
+    server_id?: string;
+    category_filter: string[];
+    enabled: boolean;
+  }) {
+    const response = await this.client.post("/permissions/policies", data);
+    return response.data;
+  }
+
+  async updatePermissionPolicy(policyId: string, data: {
+    name?: string;
+    description?: string;
+    policy_type?: "allow" | "deny" | "require_approval";
+    priority?: number;
+    tool_pattern?: string;
+    server_id?: string;
+    category_filter?: string[];
+    enabled?: boolean;
+  }) {
+    const response = await this.client.patch(`/permissions/policies/${policyId}`, data);
+    return response.data;
+  }
+
+  async deletePermissionPolicy(policyId: string) {
+    const response = await this.client.delete(`/permissions/policies/${policyId}`);
+    return response.data;
+  }
+
+  // Role Permissions
+  async getRolePermissions(workspaceId: string, params?: {
+    tool_name?: string;
+    server_id?: string;
+    role?: "owner" | "admin" | "member" | "viewer";
+    limit?: number;
+    offset?: number;
+  }) {
+    const response = await this.client.get("/permissions/role-permissions", {
+      params: { workspace_id: workspaceId, ...params },
+    });
+    return response.data;
+  }
+
+  async createRolePermission(data: {
+    workspace_id: string;
+    tool_name: string;
+    server_id?: string;
+    role: "owner" | "admin" | "member" | "viewer";
+    permission: "allow" | "deny" | "require_approval";
+  }) {
+    const response = await this.client.post("/permissions/role-permissions", data);
+    return response.data;
+  }
+
+  async updateRolePermission(rolePermissionId: string, data: {
+    permission?: "allow" | "deny" | "require_approval";
+  }) {
+    const response = await this.client.patch(`/permissions/role-permissions/${rolePermissionId}`, data);
+    return response.data;
+  }
+
+  async deleteRolePermission(rolePermissionId: string) {
+    const response = await this.client.delete(`/permissions/role-permissions/${rolePermissionId}`);
+    return response.data;
+  }
+
+  // Permission Rules
+  async getPermissionRules(workspaceId: string, params?: {
+    tool_name?: string;
+    server_id?: string;
+    enabled?: boolean;
+    limit?: number;
+    offset?: number;
+  }) {
+    const response = await this.client.get("/permissions/rules", {
+      params: { workspace_id: workspaceId, ...params },
+    });
+    return response.data;
+  }
+
+  async getPermissionRule(ruleId: string) {
+    const response = await this.client.get(`/permissions/rules/${ruleId}`);
+    return response.data;
+  }
+
+  async createPermissionRule(data: {
+    workspace_id: string;
+    name: string;
+    description?: string;
+    tool_name: string;
+    server_id?: string;
+    condition_type: "always" | "time_based" | "parameter_based" | "user_based" | "resource_based";
+    condition_config: Record<string, unknown>;
+    action: "allow" | "deny" | "require_approval";
+    priority: number;
+    enabled: boolean;
+  }) {
+    const response = await this.client.post("/permissions/rules", data);
+    return response.data;
+  }
+
+  async updatePermissionRule(ruleId: string, data: {
+    name?: string;
+    description?: string;
+    condition_type?: "always" | "time_based" | "parameter_based" | "user_based" | "resource_based";
+    condition_config?: Record<string, unknown>;
+    action?: "allow" | "deny" | "require_approval";
+    priority?: number;
+    enabled?: boolean;
+  }) {
+    const response = await this.client.patch(`/permissions/rules/${ruleId}`, data);
+    return response.data;
+  }
+
+  async deletePermissionRule(ruleId: string) {
+    const response = await this.client.delete(`/permissions/rules/${ruleId}`);
+    return response.data;
+  }
+
+  // Audit Log
+  async getPermissionAuditLog(workspaceId: string, params?: {
+    user_id?: string;
+    tool_name?: string;
+    server_id?: string;
+    decision?: "allowed" | "denied" | "pending_approval" | "error";
+    limit?: number;
+    offset?: number;
+  }) {
+    const response = await this.client.get("/permissions/audit-log", {
+      params: { workspace_id: workspaceId, ...params },
+    });
+    return response.data;
+  }
+
+  // Permission Evaluation
+  async evaluatePermission(workspaceId: string, data: {
+    tool_name: string;
+    server_id?: string;
+    input_parameters?: Record<string, unknown>;
+  }) {
+    const response = await this.client.post("/permissions/evaluate", data, {
+      params: { workspace_id: workspaceId },
+    });
+    return response.data;
+  }
 }
 
 export const api = new ApiClient();

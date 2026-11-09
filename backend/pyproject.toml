@@ -39,6 +39,10 @@ dev = [
 requires = ["setuptools>=75.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["api*", "schemas*", "database*", "security*", "services*", "mcp_server*"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

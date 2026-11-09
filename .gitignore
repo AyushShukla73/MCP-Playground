@@ -41,3 +41,9 @@ htmlcov/
 
 # Docker
 *.log
+
+# Conversation summaries and temp files
+CONVERSATION_SUMMARY.md
+*.md~
+*.swp
+*.tmp

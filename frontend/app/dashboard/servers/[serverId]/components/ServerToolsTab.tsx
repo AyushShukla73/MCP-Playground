@@ -9,8 +9,9 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { ApiError } from "@/lib/api";
-import { CheckCircle, XCircle, Loader2, Search, Code, Globe, Clock } from "lucide-react";
+import { CheckCircle, XCircle, Loader2, Search, Code, Globe, Clock, AlertTriangle, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { MCPServerToolResponse } from "@/lib/api/servers";
 import { toast } from "sonner";
@@ -20,14 +21,16 @@ interface ToolCallForm {
   args: string;
 }
 
-export function ServerToolsTab({ serverId }: { serverId: string }) {
+export function ServerToolsTab({ serverId, workspaceId = "default" }: { serverId: string; workspaceId?: string }) {
   const { data: toolsData, isLoading, refetch } = useServerTools(serverId);
   const { data: healthData } = useServerHealth(serverId);
   const [searchTerm, setSearchTerm] = useState("");
   const [showToolForm, setShowToolForm] = useState<string | null>(null);
   const [isCallingTool, setIsCallingTool] = useState(false);
   const [toolForm, setToolForm] = useState<ToolCallForm>({ toolName: "", args: "" });
-  const [toolResult, setToolResult] = useState<{ success: boolean; data?: unknown; error?: string } | null>(null);
+  const [toolResult, setToolResult] = useState<{ success: boolean; data?: unknown; error?: string; pendingApproval?: boolean; requestId?: string } | null>(null);
+  const [showApprovalDialog, setShowApprovalDialog] = useState(false);
+  const [approvalRequestId, setApprovalRequestId] = useState<string | null>(null);
 
   const tools = toolsData || [];
   const filteredTools = searchTerm
@@ -55,20 +58,58 @@ export function ServerToolsTab({ serverId }: { serverId: string }) {
         args = JSON.parse(toolForm.args);
       }
 
-      const result = await fetch(`/api/servers/${serverId}/tools/${toolForm.toolName}/call`, {
+      // Use the new permission-enforced tool execution endpoint
+      const result = await fetch(`/api/tool-execution/execute?workspace_id=${workspaceId}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ arguments: args }),
+        body: JSON.stringify({
+          tool_name: toolForm.toolName,
+          arguments: args,
+          server_id: serverId,
+        }),
       });
 
       if (!result.ok) {
         const error = await result.json();
+
+        // Handle pending approval (402-like response)
+        if (result.status === 403 && error.detail?.decision === "pending_approval") {
+          setToolResult({
+            success: false,
+            error: "This tool requires approval before execution",
+            pendingApproval: true,
+            requestId: error.detail.request_id,
+          });
+          setApprovalRequestId(error.detail.request_id);
+          setShowApprovalDialog(true);
+          return;
+        }
+
+        // Handle denied
+        if (result.status === 403 && error.detail?.decision === "denied") {
+          throw new Error(`Permission denied: ${error.detail.error_message || "Access denied by policy"}`);
+        }
+
         throw new Error(error.detail || "Failed to call tool");
       }
 
       const data = await result.json();
+
+      // Check if execution was pending approval
+      if (data.status === "pending") {
+        setToolResult({
+          success: false,
+          error: "Tool execution requires approval",
+          pendingApproval: true,
+          requestId: data.request_id,
+        });
+        setApprovalRequestId(data.request_id);
+        setShowApprovalDialog(true);
+        return;
+      }
+
       setToolResult({ success: true, data });
       toast.success(`Tool "${toolForm.toolName}" called successfully`);
     } catch (error) {
@@ -218,7 +259,7 @@ export function ServerToolsTab({ serverId }: { serverId: string }) {
                   <div
                     className={cn(
                       "p-3 rounded-lg font-mono text-xs overflow-x-auto",
-                      toolResult.success ? "bg-green-50" : "bg-red-50"
+                      toolResult.success ? "bg-green-50" : toolResult.pendingApproval ? "bg-yellow-50" : "bg-red-50"
                     )}
                   >
                     <pre className="whitespace-pre-wrap break-all">
@@ -228,6 +269,52 @@ export function ServerToolsTab({ serverId }: { serverId: string }) {
                 </div>
               </>
             )}
+
+            {/* Approval Dialog */}
+            <AlertDialog open={showApprovalDialog} onOpenChange={setShowApprovalDialog}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <Shield className="h-6 w-6 text-yellow-500 mr-2" />
+                  <AlertDialogTitle>Approval Required</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This tool execution requires approval before it can proceed. An administrator or approver
+                    must review and approve this request.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel onClick={() => {
+                    setShowApprovalDialog(false);
+                    setApprovalRequestId(null);
+                  }}>
+                    Dismiss
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    variant="outline"
+                    onClick={async () => {
+                      if (!approvalRequestId) return;
+                      try {
+                        const result = await fetch(`/api/tool-execution/execute/${approvalRequestId}/approve?workspace_id=${workspaceId}`, {
+                          method: "POST",
+                        });
+                        if (result.ok) {
+                          toast.success("Execution approved");
+                          // Re-fetch the result
+                          handleCallTool();
+                        } else {
+                          toast.error("Failed to approve");
+                        }
+                      } catch (e) {
+                        toast.error("Error approving execution");
+                      }
+                      setShowApprovalDialog(false);
+                      setApprovalRequestId(null);
+                    }}
+                  >
+                    Approve & Execute
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </CardContent>
         </Card>
       )}

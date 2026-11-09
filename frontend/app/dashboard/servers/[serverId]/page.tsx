@@ -89,7 +89,7 @@ export default function ServerDetailPage() {
 
       <div className="space-y-6">
         <ServerOverviewTab serverId={serverId} />
-        <ServerToolsTab serverId={serverId} />
+        <ServerToolsTab serverId={serverId} workspaceId="default" />
         <ServerResourcesTab serverId={serverId} />
         <ServerPromptsTab serverId={serverId} />
         <ServerActivityTab serverId={serverId} />
