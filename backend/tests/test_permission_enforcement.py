@@ -13,8 +13,8 @@ from backend.api.routes.tool_execution import (
     execute_tool,
     approve_execution,
     reject_execution,
+    ToolExecuteRequest,
 )
-from backend.schemas.tool_execution import ToolExecuteRequest
 
 
 class TestPermissionEvaluator:

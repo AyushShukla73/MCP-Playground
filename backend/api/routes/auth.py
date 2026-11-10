@@ -40,23 +40,26 @@ def create_access_token(user_id: str, email: str) -> str:
     payload = {
         "sub": user_id,
         "email": email,
-        "exp": datetime.utcnow() + timedelta(minutes=settings.jwt_expiration_minutes),
+        "exp": datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes),
     }
-    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
 
 def decode_token(token: str) -> dict:
     """Decode and validate JWT token."""
     try:
-        return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        return jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
 
-async def get_current_user(authorization: Optional[str] = None) -> dict:
+from fastapi import Header
+
+async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     """Get current user from JWT token."""
+    logger.info("get_current_user called", authorization=authorization)
     if not authorization:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
@@ -64,33 +67,54 @@ async def get_current_user(authorization: Optional[str] = None) -> dict:
     if scheme.lower() != "bearer" or not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication scheme")
 
-    return decode_token(token)
+    result = decode_token(token)
+    logger.info("get_current_user decoded", result=result)
+    return result
 
 
 @router.post("/login", response_model=AuthResponse)
 async def login(request: LoginRequest):
     """Login with email and password."""
-    # Demo: Accept any email/password and create a token
-    # In production, verify against Supabase Auth
-    user_id = "demo-user-id"
-    token = create_access_token(user_id, request.email)
-    return AuthResponse(
-        access_token=token,
-        expires_in=settings.jwt_expiration_minutes * 60,
-        user={"id": user_id, "email": request.email},
-    )
+    logger.info("Login attempt", email=request.email)
+    try:
+        # Look up user in database
+        from backend.database.connection import db_pool
+        from uuid import UUID
+
+        query = "SELECT id FROM auth.users WHERE email = $1"
+        user = await db_pool.fetchrow(query, request.email)
+
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+        user_id = str(user["id"])
+        logger.info("Creating token", user_id=user_id)
+        token = create_access_token(user_id, request.email)
+        logger.info("Token created successfully", user_id=user_id)
+        return AuthResponse(
+            access_token=token,
+            expires_in=settings.access_token_expire_minutes * 60,
+            user={"id": user_id, "email": request.email},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Login error", error=str(e), exc_info=True)
+        raise
 
 
 @router.post("/register", response_model=AuthResponse)
 async def register(request: RegisterRequest):
     """Register a new user."""
+    logger.info("Register attempt", email=request.email)
     # Demo: Create a new user
     # In production, create user in Supabase Auth
     user_id = "new-user-id"
     token = create_access_token(user_id, request.email)
+    logger.info("Token created", user_id=user_id)
     return AuthResponse(
         access_token=token,
-        expires_in=settings.jwt_expiration_minutes * 60,
+        expires_in=settings.access_token_expire_minutes * 60,
         user={"id": user_id, "email": request.email, "name": request.name},
     )
 

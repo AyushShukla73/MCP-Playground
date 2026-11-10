@@ -6,7 +6,14 @@ from uuid import UUID
 from enum import Enum
 
 from backend.services.base import BaseService
-from backend.schemas.models import ToolPermissionCategory
+from backend.schemas.models import (
+    ToolPermissionCategory,
+    ToolCategoryResponse,
+    ToolPermissionPolicyResponse,
+    ToolRolePermissionResponse,
+    ToolPermissionRuleResponse,
+    PermissionEvaluateResponse,
+)
 
 
 class PermissionDecision(str, Enum):
@@ -207,7 +214,7 @@ class PermissionEvaluator(BaseService):
             SELECT role FROM workspace_members
             WHERE workspace_id = $1 AND user_id = $2
         """
-        row = await self.pool.fetchrow(query, workspace_id, user_id)
+        row = await self.db.fetchrow(query, workspace_id, user_id)
         return row["role"] if row else None
 
     async def _get_tool_info(
@@ -221,7 +228,7 @@ class PermissionEvaluator(BaseService):
                 JOIN mcp_servers s ON s.id = t.server_id
                 WHERE t.name = $1 AND t.server_id = $2 AND s.workspace_id = $3
             """
-            return await self.pool.fetchrow(query, tool_name, server_id, workspace_id)
+            return await self.db.fetchrow(query, tool_name, server_id, workspace_id)
         else:
             # Find tool across all servers in workspace
             query = """
@@ -232,7 +239,7 @@ class PermissionEvaluator(BaseService):
                 ORDER BY t.discovered_at DESC
                 LIMIT 1
             """
-            return await self.pool.fetchrow(query, tool_name, workspace_id)
+            return await self.db.fetchrow(query, tool_name, workspace_id)
 
     async def _check_role_permissions(
         self,
@@ -252,7 +259,7 @@ class PermissionEvaluator(BaseService):
                 ORDER BY
                     CASE role WHEN 'owner' THEN 4 WHEN 'admin' THEN 3 WHEN 'member' THEN 2 WHEN 'viewer' THEN 1 END DESC
             """
-            rows = await self.pool.fetch(query, workspace_id, tool_name, server_id)
+            rows = await self.db.fetch(query, workspace_id, tool_name, server_id)
         else:
             query = """
                 SELECT * FROM tool_role_permissions
@@ -260,7 +267,7 @@ class PermissionEvaluator(BaseService):
                 ORDER BY
                     CASE role WHEN 'owner' THEN 4 WHEN 'admin' THEN 3 WHEN 'member' THEN 2 WHEN 'viewer' THEN 1 END DESC
             """
-            rows = await self.pool.fetch(query, workspace_id, tool_name)
+            rows = await self.db.fetch(query, workspace_id, tool_name)
 
         # Find the highest priority rule that applies to user's role or higher
         for row in rows:
@@ -300,7 +307,7 @@ class PermissionEvaluator(BaseService):
 
         query += " ORDER BY priority ASC"
 
-        rows = await self.pool.fetch(query, *params)
+        rows = await self.db.fetch(query, *params)
 
         for row in rows:
             condition_type = row["condition_type"]
@@ -419,7 +426,7 @@ class PermissionEvaluator(BaseService):
             AND (server_id IS NULL OR server_id = $2)
             ORDER BY priority ASC
         """
-        rows = await self.pool.fetch(query, workspace_id, server_id)
+        rows = await self.db.fetch(query, workspace_id, server_id)
 
         for row in rows:
             # Check tool pattern match
@@ -456,7 +463,7 @@ class PermissionEvaluator(BaseService):
         query = """
             SELECT * FROM tool_categories WHERE name = $1
         """
-        row = await self.pool.fetchrow(query, category)
+        row = await self.db.fetchrow(query, category)
 
         if not row:
             return None
@@ -499,7 +506,7 @@ class PermissionEvaluator(BaseService):
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING id
         """
-        row = await self.pool.fetchrow(
+        row = await self.db.fetchrow(
             query,
             workspace_id,
             user_id,
@@ -529,7 +536,7 @@ class PermissionEvaluator(BaseService):
     ) -> Dict[str, Any]:
         """Get permission audit log for a workspace."""
         # Check user has access to workspace
-        membership = await self.pool.fetchrow(
+        membership = await self.db.fetchrow(
             "SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2",
             workspace_id, user_id
         )
@@ -572,7 +579,7 @@ class PermissionEvaluator(BaseService):
 
         # Count total
         count_query = f"SELECT COUNT(*) as total FROM permission_decisions WHERE {where_clause}"
-        total_row = await self.pool.fetchrow(count_query, *params)
+        total_row = await self.db.fetchrow(count_query, *params)
         total = total_row["total"]
 
         # Get paginated results
@@ -583,7 +590,7 @@ class PermissionEvaluator(BaseService):
             ORDER BY created_at DESC
             LIMIT ${param_idx} OFFSET ${param_idx + 1}
         """
-        rows = await self.pool.fetch(query, *params)
+        rows = await self.db.fetch(query, *params)
 
         return {
             "decisions": [dict(row) for row in rows],
@@ -592,6 +599,604 @@ class PermissionEvaluator(BaseService):
             "offset": offset,
         }
 
+
+    async def create_tool_category(
+        self,
+        created_by: UUID,
+        name: str,
+        display_name: str,
+        description: Optional[str] = None,
+        default_category: str = "unknown",
+        default_requires_approval: bool = False,
+        default_allowed_roles: Optional[List[str]] = None,
+    ) -> Optional[ToolCategoryResponse]:
+        """Create a new tool category (admin only - RLS enforced)."""
+        if default_allowed_roles is None:
+            default_allowed_roles = ["owner", "admin", "member"]
+
+        query = """
+            INSERT INTO tool_categories (name, display_name, description, default_category, default_requires_approval, default_allowed_roles)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING *
+        """
+        try:
+            row = await self.db.fetchrow(
+                query,
+                name,
+                display_name,
+                description,
+                default_category,
+                default_requires_approval,
+                default_allowed_roles,
+            )
+            return ToolCategoryResponse.model_validate(dict(row)) if row else None
+        except Exception as e:
+            logger.error(f"Failed to create tool category: {e}")
+            return None
+
+    async def get_tool_categories(self) -> List[ToolCategoryResponse]:
+        """Get all tool categories."""
+        query = "SELECT * FROM tool_categories ORDER BY name"
+        rows = await self.db.fetch(query)
+        return [ToolCategoryResponse.model_validate(dict(row)) for row in rows]
+
+    async def get_tool_category(self, category_id: UUID) -> Optional[ToolCategoryResponse]:
+        """Get a tool category by ID."""
+        query = "SELECT * FROM tool_categories WHERE id = $1"
+        row = await self.db.fetchrow(query, category_id)
+        return ToolCategoryResponse.model_validate(dict(row)) if row else None
+
+    async def update_tool_category(
+        self,
+        category_id: UUID,
+        user_id: UUID,
+        display_name: Optional[str] = None,
+        description: Optional[str] = None,
+        default_category: Optional[str] = None,
+        default_requires_approval: Optional[bool] = None,
+        default_allowed_roles: Optional[List[str]] = None,
+    ) -> Optional[ToolCategoryResponse]:
+        """Update a tool category (admin only - RLS enforced)."""
+        # Build dynamic update query
+        updates = []
+        params = [category_id]
+        param_idx = 2
+
+        if display_name is not None:
+            updates.append(f"display_name = ${param_idx}")
+            params.append(display_name)
+            param_idx += 1
+        if description is not None:
+            updates.append(f"description = ${param_idx}")
+            params.append(description)
+            param_idx += 1
+        if default_category is not None:
+            updates.append(f"default_category = ${param_idx}")
+            params.append(default_category)
+            param_idx += 1
+        if default_requires_approval is not None:
+            updates.append(f"default_requires_approval = ${param_idx}")
+            params.append(default_requires_approval)
+            param_idx += 1
+        if default_allowed_roles is not None:
+            updates.append(f"default_allowed_roles = ${param_idx}")
+            params.append(default_allowed_roles)
+            param_idx += 1
+
+        if not updates:
+            return None
+
+        updates.append(f"updated_at = NOW()")
+        query = f"""
+            UPDATE tool_categories
+            SET {', '.join(updates)}
+            WHERE id = $1
+            RETURNING *
+        """
+
+        try:
+            row = await self.db.fetchrow(query, *params)
+            return ToolCategoryResponse.model_validate(dict(row)) if row else None
+        except Exception as e:
+            logger.error(f"Failed to update tool category: {e}")
+            return None
+
+    async def delete_tool_category(self, category_id: UUID, user_id: UUID) -> bool:
+        """Delete a tool category (admin only - RLS enforced)."""
+        query = "DELETE FROM tool_categories WHERE id = $1"
+        try:
+            result = await self.db.execute(query, category_id)
+            return result != "DELETE 0"
+        except Exception as e:
+            logger.error(f"Failed to delete tool category: {e}")
+            return False
+
+    # Tool Permission Policy CRUD methods
+    async def create_permission_policy(
+        self,
+        workspace_id: UUID,
+        created_by: UUID,
+        name: str,
+        description: Optional[str],
+        policy_type: str,
+        priority: int,
+        tool_pattern: Optional[str],
+        server_id: Optional[UUID],
+        category_filter: List[str],
+        enabled: bool,
+    ) -> Optional[ToolPermissionPolicyResponse]:
+        """Create a workspace-level permission policy (admin+ - RLS enforced)."""
+        query = """
+            INSERT INTO tool_permission_policies (workspace_id, name, description, policy_type, priority, tool_pattern, server_id, category_filter, enabled, created_by)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            RETURNING *
+        """
+        try:
+            row = await self.db.fetchrow(
+                query,
+                workspace_id,
+                name,
+                description,
+                policy_type,
+                priority,
+                tool_pattern,
+                server_id,
+                category_filter,
+                enabled,
+                created_by,
+            )
+            return ToolPermissionPolicyResponse.model_validate(dict(row)) if row else None
+        except Exception as e:
+            logger.error(f"Failed to create permission policy: {e}")
+            return None
+
+    async def get_permission_policies(
+        self,
+        workspace_id: UUID,
+        user_id: UUID,
+        enabled: Optional[bool] = None,
+    ) -> List[ToolPermissionPolicyResponse]:
+        """List permission policies for a workspace (RLS enforced)."""
+        query = "SELECT * FROM tool_permission_policies WHERE workspace_id = $1"
+        params = [workspace_id]
+        param_idx = 2
+
+        if enabled is not None:
+            query += f" AND enabled = ${param_idx}"
+            params.append(enabled)
+            param_idx += 1
+
+        query += " ORDER BY priority ASC, created_at DESC"
+
+        try:
+            rows = await self.db.fetch(query, *params)
+            return [ToolPermissionPolicyResponse.model_validate(dict(row)) for row in rows]
+        except Exception as e:
+            logger.error(f"Failed to get permission policies: {e}")
+            return []
+
+    async def get_permission_policy(self, policy_id: UUID, user_id: UUID) -> Optional[ToolPermissionPolicyResponse]:
+        """Get a permission policy by ID (RLS enforced)."""
+        query = "SELECT * FROM tool_permission_policies WHERE id = $1"
+        try:
+            row = await self.db.fetchrow(query, policy_id)
+            return ToolPermissionPolicyResponse.model_validate(dict(row)) if row else None
+        except Exception as e:
+            logger.error(f"Failed to get permission policy: {e}")
+            return None
+
+    async def update_permission_policy(
+        self,
+        policy_id: UUID,
+        user_id: UUID,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        policy_type: Optional[str] = None,
+        priority: Optional[int] = None,
+        tool_pattern: Optional[str] = None,
+        server_id: Optional[UUID] = None,
+        category_filter: Optional[List[str]] = None,
+        enabled: Optional[bool] = None,
+    ) -> Optional[ToolPermissionPolicyResponse]:
+        """Update a permission policy (admin+ - RLS enforced)."""
+        updates = []
+        params = [policy_id]
+        param_idx = 2
+
+        if name is not None:
+            updates.append(f"name = ${param_idx}")
+            params.append(name)
+            param_idx += 1
+        if description is not None:
+            updates.append(f"description = ${param_idx}")
+            params.append(description)
+            param_idx += 1
+        if policy_type is not None:
+            updates.append(f"policy_type = ${param_idx}")
+            params.append(policy_type)
+            param_idx += 1
+        if priority is not None:
+            updates.append(f"priority = ${param_idx}")
+            params.append(priority)
+            param_idx += 1
+        if tool_pattern is not None:
+            updates.append(f"tool_pattern = ${param_idx}")
+            params.append(tool_pattern)
+            param_idx += 1
+        if server_id is not None:
+            updates.append(f"server_id = ${param_idx}")
+            params.append(server_id)
+            param_idx += 1
+        if category_filter is not None:
+            updates.append(f"category_filter = ${param_idx}")
+            params.append(category_filter)
+            param_idx += 1
+        if enabled is not None:
+            updates.append(f"enabled = ${param_idx}")
+            params.append(enabled)
+            param_idx += 1
+
+        if not updates:
+            return None
+
+        updates.append(f"updated_at = NOW()")
+        query = f"""
+            UPDATE tool_permission_policies
+            SET {', '.join(updates)}
+            WHERE id = $1
+            RETURNING *
+        """
+
+        try:
+            row = await self.db.fetchrow(query, *params)
+            return ToolPermissionPolicyResponse.model_validate(dict(row)) if row else None
+        except Exception as e:
+            logger.error(f"Failed to update permission policy: {e}")
+            return None
+
+    async def delete_permission_policy(self, policy_id: UUID, user_id: UUID) -> bool:
+        """Delete a permission policy (admin+ - RLS enforced)."""
+        query = "DELETE FROM tool_permission_policies WHERE id = $1"
+        try:
+            result = await self.db.execute(query, policy_id)
+            return result != "DELETE 0"
+        except Exception as e:
+            logger.error(f"Failed to delete permission policy: {e}")
+            return False
+
+    # Tool Role Permission CRUD methods
+    async def create_role_permission(
+        self,
+        workspace_id: UUID,
+        user_id: UUID,
+        tool_name: str,
+        server_id: Optional[UUID],
+        role: str,
+        permission: str,
+    ) -> Optional[ToolRolePermissionResponse]:
+        """Create a role-based tool permission (admin+ - RLS enforced)."""
+        query = """
+            INSERT INTO tool_role_permissions (workspace_id, tool_name, server_id, role, permission)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (workspace_id, tool_name, role, server_id)
+            DO UPDATE SET permission = EXCLUDED.permission, updated_at = NOW()
+            RETURNING *
+        """
+        try:
+            row = await self.db.fetchrow(
+                query,
+                workspace_id,
+                tool_name,
+                server_id,
+                role,
+                permission,
+            )
+            return ToolRolePermissionResponse.model_validate(dict(row)) if row else None
+        except Exception as e:
+            logger.error(f"Failed to create role permission: {e}")
+            return None
+
+    async def get_role_permissions(
+        self,
+        workspace_id: UUID,
+        user_id: UUID,
+        tool_name: Optional[str] = None,
+        server_id: Optional[UUID] = None,
+        role: Optional[str] = None,
+    ) -> List[ToolRolePermissionResponse]:
+        """List role permissions for a workspace (RLS enforced)."""
+        query = "SELECT * FROM tool_role_permissions WHERE workspace_id = $1"
+        params = [workspace_id]
+        param_idx = 2
+
+        if tool_name is not None:
+            query += f" AND tool_name = ${param_idx}"
+            params.append(tool_name)
+            param_idx += 1
+        if server_id is not None:
+            query += f" AND server_id = ${param_idx}"
+            params.append(server_id)
+            param_idx += 1
+        if role is not None:
+            query += f" AND role = ${param_idx}"
+            params.append(role)
+            param_idx += 1
+
+        query += " ORDER BY tool_name, role"
+
+        try:
+            rows = await self.db.fetch(query, *params)
+            return [ToolRolePermissionResponse.model_validate(dict(row)) for row in rows]
+        except Exception as e:
+            logger.error(f"Failed to get role permissions: {e}")
+            return []
+
+    async def update_role_permission(
+        self,
+        role_permission_id: UUID,
+        user_id: UUID,
+        permission: Optional[str] = None,
+    ) -> Optional[ToolRolePermissionResponse]:
+        """Update a role permission (admin+ - RLS enforced)."""
+        if permission is None:
+            return None
+
+        query = """
+            UPDATE tool_role_permissions
+            SET permission = $2, updated_at = NOW()
+            WHERE id = $1
+            RETURNING *
+        """
+        try:
+            row = await self.db.fetchrow(query, role_permission_id, permission)
+            return ToolRolePermissionResponse.model_validate(dict(row)) if row else None
+        except Exception as e:
+            logger.error(f"Failed to update role permission: {e}")
+            return None
+
+    async def delete_role_permission(self, role_permission_id: UUID, user_id: UUID) -> bool:
+        """Delete a role permission (admin+ - RLS enforced)."""
+        query = "DELETE FROM tool_role_permissions WHERE id = $1"
+        try:
+            result = await self.db.execute(query, role_permission_id)
+            return result != "DELETE 0"
+        except Exception as e:
+            logger.error(f"Failed to delete role permission: {e}")
+            return False
+
+    # Tool Permission Rule CRUD methods
+    async def create_permission_rule(
+        self,
+        workspace_id: UUID,
+        created_by: UUID,
+        name: str,
+        description: Optional[str],
+        tool_name: str,
+        server_id: Optional[UUID],
+        condition_type: str,
+        condition_config: Dict[str, Any],
+        action: str,
+        priority: int,
+        enabled: bool,
+    ) -> Optional[ToolPermissionRuleResponse]:
+        """Create a fine-grained permission rule (admin+ - RLS enforced)."""
+        query = """
+            INSERT INTO tool_permission_rules (workspace_id, name, description, tool_name, server_id, condition_type, condition_config, action, priority, enabled, created_by)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            RETURNING *
+        """
+        try:
+            row = await self.db.fetchrow(
+                query,
+                workspace_id,
+                name,
+                description,
+                tool_name,
+                server_id,
+                condition_type,
+                condition_config,
+                action,
+                priority,
+                enabled,
+                created_by,
+            )
+            return ToolPermissionRuleResponse.model_validate(dict(row)) if row else None
+        except Exception as e:
+            logger.error(f"Failed to create permission rule: {e}")
+            return None
+
+    async def get_permission_rules(
+        self,
+        workspace_id: UUID,
+        user_id: UUID,
+        tool_name: Optional[str] = None,
+        server_id: Optional[UUID] = None,
+        enabled: Optional[bool] = None,
+    ) -> List[ToolPermissionRuleResponse]:
+        """List permission rules for a workspace (RLS enforced)."""
+        query = "SELECT * FROM tool_permission_rules WHERE workspace_id = $1"
+        params = [workspace_id]
+        param_idx = 2
+
+        if tool_name is not None:
+            query += f" AND tool_name = ${param_idx}"
+            params.append(tool_name)
+            param_idx += 1
+        if server_id is not None:
+            query += f" AND server_id = ${param_idx}"
+            params.append(server_id)
+            param_idx += 1
+        if enabled is not None:
+            query += f" AND enabled = ${param_idx}"
+            params.append(enabled)
+            param_idx += 1
+
+        query += " ORDER BY priority ASC, created_at DESC"
+
+        try:
+            rows = await self.db.fetch(query, *params)
+            return [ToolPermissionRuleResponse.model_validate(dict(row)) for row in rows]
+        except Exception as e:
+            logger.error(f"Failed to get permission rules: {e}")
+            return []
+
+    async def get_permission_rule(self, rule_id: UUID, user_id: UUID) -> Optional[ToolPermissionRuleResponse]:
+        """Get a permission rule by ID (RLS enforced)."""
+        query = "SELECT * FROM tool_permission_rules WHERE id = $1"
+        try:
+            row = await self.db.fetchrow(query, rule_id)
+            return ToolPermissionRuleResponse.model_validate(dict(row)) if row else None
+        except Exception as e:
+            logger.error(f"Failed to get permission rule: {e}")
+            return None
+
+    async def update_permission_rule(
+        self,
+        rule_id: UUID,
+        user_id: UUID,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        condition_type: Optional[str] = None,
+        condition_config: Optional[Dict[str, Any]] = None,
+        action: Optional[str] = None,
+        priority: Optional[int] = None,
+        enabled: Optional[bool] = None,
+    ) -> Optional[ToolPermissionRuleResponse]:
+        """Update a permission rule (admin+ - RLS enforced)."""
+        updates = []
+        params = [rule_id]
+        param_idx = 2
+
+        if name is not None:
+            updates.append(f"name = ${param_idx}")
+            params.append(name)
+            param_idx += 1
+        if description is not None:
+            updates.append(f"description = ${param_idx}")
+            params.append(description)
+            param_idx += 1
+        if condition_type is not None:
+            updates.append(f"condition_type = ${param_idx}")
+            params.append(condition_type)
+            param_idx += 1
+        if condition_config is not None:
+            updates.append(f"condition_config = ${param_idx}")
+            params.append(condition_config)
+            param_idx += 1
+        if action is not None:
+            updates.append(f"action = ${param_idx}")
+            params.append(action)
+            param_idx += 1
+        if priority is not None:
+            updates.append(f"priority = ${param_idx}")
+            params.append(priority)
+            param_idx += 1
+        if enabled is not None:
+            updates.append(f"enabled = ${param_idx}")
+            params.append(enabled)
+            param_idx += 1
+
+        if not updates:
+            return None
+
+        updates.append(f"updated_at = NOW()")
+        query = f"""
+            UPDATE tool_permission_rules
+            SET {', '.join(updates)}
+            WHERE id = $1
+            RETURNING *
+        """
+
+        try:
+            row = await self.db.fetchrow(query, *params)
+            return ToolPermissionRuleResponse.model_validate(dict(row)) if row else None
+        except Exception as e:
+            logger.error(f"Failed to update permission rule: {e}")
+            return None
+
+    async def delete_permission_rule(self, rule_id: UUID, user_id: UUID) -> bool:
+        """Delete a permission rule (admin+ - RLS enforced)."""
+        query = "DELETE FROM tool_permission_rules WHERE id = $1"
+        try:
+            result = await self.db.execute(query, rule_id)
+            return result != "DELETE 0"
+        except Exception as e:
+            logger.error(f"Failed to delete permission rule: {e}")
+            return False
+
+    async def get_audit_log(
+        self,
+        workspace_id: UUID,
+        user_id: UUID,
+        target_user_id: Optional[UUID] = None,
+        tool_name: Optional[str] = None,
+        server_id: Optional[UUID] = None,
+        decision: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """Get permission audit log for a workspace (admin+ sees all, users see own)."""
+        # Check user has access to workspace
+        membership = await self.db.fetchrow(
+            "SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2",
+            workspace_id, user_id
+        )
+        if not membership:
+            raise PermissionError("User is not a member of this workspace")
+
+        is_admin = membership["role"] in ("owner", "admin")
+
+        conditions = ["workspace_id = $1"]
+        params = [workspace_id]
+        param_idx = 2
+
+        if not is_admin:
+            conditions.append(f"user_id = ${param_idx}")
+            params.append(user_id)
+            param_idx += 1
+        elif target_user_id:
+            conditions.append(f"user_id = ${param_idx}")
+            params.append(target_user_id)
+            param_idx += 1
+
+        if tool_name:
+            conditions.append(f"tool_name = ${param_idx}")
+            params.append(tool_name)
+            param_idx += 1
+
+        if server_id:
+            conditions.append(f"server_id = ${param_idx}")
+            params.append(server_id)
+            param_idx += 1
+
+        if decision:
+            conditions.append(f"decision = ${param_idx}")
+            params.append(decision)
+            param_idx += 1
+
+        where_clause = " AND ".join(conditions)
+
+        # Count total
+        count_query = f"SELECT COUNT(*) as total FROM permission_decisions WHERE {where_clause}"
+        total_row = await self.db.fetchrow(count_query, *params)
+        total = total_row["total"]
+
+        # Get paginated results
+        params.extend([limit, offset])
+        query = f"""
+            SELECT * FROM permission_decisions
+            WHERE {where_clause}
+            ORDER BY created_at DESC
+            LIMIT ${param_idx} OFFSET ${param_idx + 1}
+        """
+        rows = await self.db.fetch(query, *params)
+
+        return {
+            "decisions": [dict(row) for row in rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
 
 # Singleton instance
 permission_evaluator = PermissionEvaluator()

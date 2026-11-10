@@ -1,0 +1,2 @@
+$proc = Start-Process -FilePath 'C:\postgresql-17.exe' -ArgumentList '--mode unattended --prefix "C:\Program Files\PostgreSQL\17" --datadir "C:\Program Files\PostgreSQL\17\data" --password postgres --port 5432' -NoNewWindow -PassThru -Wait
+Write-Host "ExitCode: $($proc.ExitCode)"

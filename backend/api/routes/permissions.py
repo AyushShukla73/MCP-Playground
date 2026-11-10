@@ -16,7 +16,7 @@ import structlog
 
 logger = structlog.get_logger()
 
-router = APIRouter(prefix="/permissions", tags=["permissions"])
+router = APIRouter(tags=["permissions"])
 
 
 # Tool Category endpoints
@@ -396,4 +396,4 @@ async def evaluate_permission(
         server_id=request.server_id,
         input_parameters=request.input_parameters,
     )
-    return PermissionEvaluateResponse(**result.model_dump())
+    return PermissionEvaluateResponse(**result)

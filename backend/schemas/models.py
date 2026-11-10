@@ -1,6 +1,6 @@
 """Pydantic models for API requests/responses and database records."""
 from pydantic import BaseModel, Field, EmailStr
-from typing import Optional, List, Literal, Any
+from typing import Optional, List, Literal, Any, Dict
 from datetime import datetime
 from uuid import UUID
 import json
@@ -185,6 +185,133 @@ class ApprovalResponse(ApprovalBase):
     expires_at: datetime
     requester_email: Optional[str] = None
     reviewer_email: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# MCP Server models
+class MCPServerCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+    transport_type: str = Field(..., pattern="^(stdio|streamable_http|sse)$")
+    config: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MCPServerUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
+    status: Optional[str] = Field(None, pattern="^(connected|disconnected|error|connecting)$")
+
+
+class MCPServerResponse(BaseModel):
+    id: UUID
+    workspace_id: UUID
+    name: str
+    description: Optional[str]
+    transport_type: str
+    config: Dict[str, Any]
+    status: str
+    last_connected_at: Optional[str]
+    last_error: Optional[str]
+    created_by: UUID
+    created_at: str
+    updated_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class MCPServerToolResponse(BaseModel):
+    id: UUID
+    server_id: UUID
+    name: str
+    description: Optional[str]
+    input_schema: Dict[str, Any]
+    output_schema: Optional[Dict[str, Any]]
+    annotations: Optional[Dict[str, Any]]
+    is_enabled: bool
+    discovered_at: str
+    updated_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class MCPServerResourceResponse(BaseModel):
+    id: UUID
+    server_id: UUID
+    uri: str
+    name: str
+    description: Optional[str]
+    mime_type: Optional[str]
+    annotations: Optional[Dict[str, Any]]
+    is_enabled: bool
+    discovered_at: str
+    updated_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class MCPServerPromptResponse(BaseModel):
+    id: UUID
+    server_id: UUID
+    name: str
+    description: Optional[str]
+    arguments: List[Dict[str, Any]]
+    is_enabled: bool
+    discovered_at: str
+    updated_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class MCPServerActivityResponse(BaseModel):
+    id: UUID
+    server_id: UUID
+    workspace_id: UUID
+    user_id: Optional[UUID]
+    action: str
+    status: str
+    details: Optional[Dict[str, Any]]
+    duration_ms: Optional[int]
+    error_message: Optional[str]
+    created_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class MCPServerHealthResponse(BaseModel):
+    status: str
+    latency_ms: Optional[int]
+    details: Dict[str, Any]
+
+    class Config:
+        from_attributes = True
+
+
+class MCPServerTestConnectionResponse(BaseModel):
+    success: bool
+    status: str
+    details: Dict[str, Any]
+    duration_ms: int
+    error_message: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+
+class MCPServerDiscoveryResponse(BaseModel):
+    success: bool
+    tools_count: int
+    resources_count: int
+    prompts_count: int
+    duration_ms: int
+    error_message: Optional[str]
 
     class Config:
         from_attributes = True

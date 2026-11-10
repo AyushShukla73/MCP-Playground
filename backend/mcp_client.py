@@ -10,7 +10,7 @@ import structlog
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.sse import sse_client
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.types import (
     InitializeResult,
     Tool,
@@ -75,7 +75,7 @@ class MCPClient:
     async def _create_streamable_http_session(self) -> ClientSession:
         """Create a session for Streamable HTTP transport."""
         http_config = self._parse_http_config()
-        read_stream, write_stream, _ = await streamablehttp_client(
+        read_stream, write_stream, _ = await streamable_http_client(
             http_config["url"],
             headers=http_config["headers"],
             timeout=http_config["timeout"],

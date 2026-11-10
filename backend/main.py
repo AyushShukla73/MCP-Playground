@@ -33,10 +33,12 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     logger.info("Starting MCP Control Room API")
     # Initialize database pool
+    logger.info("Initializing database pool...")
     await db_pool.initialize()
-    logger.info("Database pool initialized")
+    logger.info("Database pool initialized successfully")
     yield
     # Cleanup
+    logger.info("Closing database pool...")
     await db_pool.close()
     logger.info("Database pool closed")
 
@@ -51,7 +53,7 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=settings.allowed_origins.split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -71,7 +73,7 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         "backend.main:app",
-        host=settings.api_host,
-        port=settings.api_port,
-        reload=settings.debug,
+        host=settings.backend_host,
+        port=settings.backend_port,
+        reload=settings.environment == "development",
     )
