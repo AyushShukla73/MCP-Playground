@@ -59,4 +59,4 @@ CONVERSATION_SUMMARY.md
 
 # PostgreSQL temporary files
 /backend/postgresql/*.log
-/backend/postgresql/*.pid
+/backend/postgresql/*.pid.claude/launch.json
