@@ -66,3 +66,7 @@ htmlcov/
 /test_*.py
 /test_*.ps1
 /backend/tests/
+
+# Local GitHub metadata drafts
+/.github/repository_description.txt
+/.github/repository_topics.txt

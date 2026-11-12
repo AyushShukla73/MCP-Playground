@@ -206,7 +206,7 @@ Connect any MCP-compatible client (Claude Desktop, Cursor, etc.) to `http://loca
 
 **Indexes**: 18 composite indexes for common query patterns  
 **Triggers**: 4 `updated_at` auto-update triggers  
-**Migrations**: 4 files (`0001_initial_schema`, `0002_mcp_servers`, `0002_permissions_schema`, `0003_tool_permissions`)
+**Migrations**: 3 files (`0001_initial_schema`, `0002_mcp_servers`, `0003_tool_permissions`)
 
 ---
 
