@@ -47,3 +47,16 @@ CONVERSATION_SUMMARY.md
 *.md~
 *.swp
 *.tmp
+
+# PostgreSQL installer
+/backend/postgresql-17.exe
+
+# Local PostgreSQL installation
+/backend/postgresql/pgsql/
+
+# Local PostgreSQL database
+/backend/postgresql/data/
+
+# PostgreSQL temporary files
+/backend/postgresql/*.log
+/backend/postgresql/*.pid
