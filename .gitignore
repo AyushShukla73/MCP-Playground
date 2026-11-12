@@ -39,11 +39,13 @@ Thumbs.db
 .coverage
 htmlcov/
 
-# Docker
+# Docker and runtime logs
 *.log
+/logfile
+*.pid
 
-# Conversation summaries and temp files
-CONVERSATION_SUMMARY.md
+# Conversation summaries and temporary files
+/CONVERSATION_SUMMARY.md
 *.md~
 *.swp
 *.tmp
@@ -57,6 +59,10 @@ CONVERSATION_SUMMARY.md
 # Local PostgreSQL database
 /backend/postgresql/data/
 
-# PostgreSQL temporary files
-/backend/postgresql/*.log
-/backend/postgresql/*.pid.claude/launch.json
+# Claude local configuration
+/.claude/
+
+# Local testing scripts
+/test_*.py
+/test_*.ps1
+/backend/tests/
